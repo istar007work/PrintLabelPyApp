@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 import subprocess
 import os
 
+
+
 ''' if using Ali PC use this in ENV
 DB_HOST=localhost
 DB_USER=root
@@ -55,6 +57,30 @@ image_path = "logo.png"  # Update this to the path of your image
 
 
 ######################  Text file reading Start ######################
+
+def label_count():
+    # Query to count the total number of rows in the archive_esn table
+    arch_count_query = 'SELECT COUNT(*) FROM archive_esn;'
+    current_count_query = 'SELECT COUNT(*) FROM current_esn;'
+
+    # Count for archive_esn
+    cursor.execute(arch_count_query)
+    arch_result = cursor.fetchone()  # Fetches the first row of the result
+    arch_label_count = arch_result[0]  # The count is in the first column of the result
+
+    # Count for current_esn
+    cursor.execute(current_count_query)
+    current_result = cursor.fetchone()  # Fetches the first row of the result
+    current_label_count = current_result[0]  # The count is in the first column of the result
+
+    # Calculate total label count
+    total_count = arch_label_count + current_label_count
+
+    print(f'Total number of rows in archive_esn: {arch_label_count}')
+    print(f'Total number of rows in current_esn: {current_label_count}')
+    print(f'Total labels: {total_count}')
+
+    return total_count  # Return the total count
 
 
 def read_carrier_text():
@@ -249,11 +275,11 @@ layout = [
     [sg.Text('Enter number (to):       ', font=('Arial', 12)),
      sg.InputText(key='-TO-', size=(25, 2), font=('Arial', 30))],
     [sg.Text('Select Carrier:             ', font=('Arial', 12)),
-     sg.Combo(carrierFile, key='-CARRIER-', readonly=True, font=('Arial', 30), size=(25, 10))],
+     sg.Combo(carrierFile, key='-CARRIER-', readonly=True, font=('Arial', 30), size=(24, 10))],
     [sg.Text('Fuel ID:                         ', font=('Arial', 12)),
-     sg.Combo(['Yes', 'No'], key='-FUELID-', readonly=True, font=('Arial', 30), size=(25, 2))],
+     sg.Combo(['Yes', 'No'], key='-FUELID-', readonly=True, font=('Arial', 30), size=(24, 2))],
     [sg.Text('QR Links:                     ', font=('Arial', 12)),
-     sg.Combo(qr_strings, key='-qrLink-', readonly=True, font=('Arial', 12), size=(25, 10))],
+     sg.Combo(qr_strings, key='-qrLink-', readonly=True, font=('Arial', 12), size=(59, 10))],
 
     [sg.Button('Submit', font=('Arial', 15),size=(15,2), border_width=2, bind_return_key=True,button_color=('white','#305c9c'),mouseover_colors='gray'),
      sg.Button('View Last Print', font=('Arial', 15),size=(15,2),border_width=2,mouseover_colors='gray'),
@@ -261,10 +287,14 @@ layout = [
      ],
     [sg.Text('Status:', font=('Arial', 12))],
     [sg.Multiline(size=(80, 10), key='-STATUS-', font=('Arial', 12), disabled=True,background_color="#C0C0C0",sbar_frame_color="#305c9c")],
-    [sg.Text('www.geometris.com', font=('Arial', 8),)],
+    [sg.Text("Total labels today:",font=('Arial', 8),justification='center'),sg.Text(key='total_labels',font=('Arial', 8))],
 ]
 
-window = sg.Window('Serial Manager June 16 2024', layout,icon='appico.ico')
+window = sg.Window('Serial Manager October 2024', layout,icon='appico.ico', element_justification='left',finalize=True)
+
+# Update the total labels on startup
+initial_count = label_count()  # Fetch initial count
+window['total_labels'].update(initial_count)  # Update the label display
 
 
 
@@ -371,6 +401,7 @@ while True:
     if event == sg.WIN_CLOSED:
         break
 
+
     if event == 'Submit':
         from_num = values['-FROM-']
         to_num = values['-TO-']
@@ -402,6 +433,10 @@ while True:
                     window['-CARRIER-'].update("")
                     window['-FUELID-'].update("")
                     window['-qrLink-'].update("")
+
+                    window['total_labels'].update(label_count())
+
+
 
                     # # Popup to ask user to select a file using checkboxes
                     # layout = [
@@ -452,6 +487,12 @@ while True:
 
                 else:
                     window['-STATUS-'].update(message)
+
+
+
+
+
+
         except ValueError as ve:
             window['-STATUS-'].update(f"Input Error: {str(ve)}")
 
