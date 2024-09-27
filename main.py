@@ -5,6 +5,8 @@ import os
 from dotenv import load_dotenv
 import subprocess
 import os
+from mysql.connector.errors import Error
+
 
 
 
@@ -55,6 +57,19 @@ image_path = "logo.png"  # Update this to the path of your image
 
 
 
+#################################################################### Global entries
+# Global query dictionary ***********not in use will use it later to finalize code
+queries = {
+    "count_current": "SELECT COUNT(*) FROM current_esn WHERE serial_number = %s", # This query checks how many entries exist in the current_esn table for a given serial_number
+    "count_archive": "SELECT COUNT(*) FROM archive_esn WHERE serial_number = %s", #this checks the archive_esn table for the existence of the serial_number.
+    "move_to_archive": "INSERT INTO archive_esn (serial_number, carrier, fuel_id, qr_code) SELECT serial_number, carrier, fuel_id, qr_code FROM current_esn", # this query transfers all data from the current_esn table to the archive_esn table.
+    "delete_current": "DELETE FROM current_esn",
+    "insert_current": "INSERT INTO current_esn (serial_number, carrier, fuel_id, qr_code) VALUES (%s, %s, %s, %s)",
+    "insert_from_archive": "INSERT INTO current_esn ({columns_str}) SELECT {columns_str} FROM archive_esn WHERE serial_number = %s", # The {columns_str} placeholder allows flexibility in specifying which columns to retrieve.
+    "select_from_archive": "SELECT {columns_str} FROM archive_esn WHERE serial_number = %s"
+}
+
+
 
 ######################  Text file reading Start ######################
 
@@ -66,12 +81,12 @@ def label_count():
     # Count for archive_esn
     cursor.execute(arch_count_query)
     arch_result = cursor.fetchone()  # Fetches the first row of the result
-    arch_label_count = arch_result[0]  # The count is in the first column of the result
+    arch_label_count = arch_result[0] if arch_result[0] is not None else 0  # Ensure it's 0 if None
 
     # Count for current_esn
     cursor.execute(current_count_query)
     current_result = cursor.fetchone()  # Fetches the first row of the result
-    current_label_count = current_result[0]  # The count is in the first column of the result
+    current_label_count = current_result[0] if current_result[0] is not None else 0  # Ensure it's 0 if None
 
     # Calculate total label count
     total_count = arch_label_count + current_label_count
@@ -81,6 +96,7 @@ def label_count():
     print(f'Total labels: {total_count}')
 
     return total_count  # Return the total count
+
 
 
 def read_carrier_text():
@@ -161,7 +177,7 @@ def view_last_esn(connection):
         )]
     ]
 
-# need to fix pop length
+
 def repeat_print(conn):
     # Define the layout of the window
     layout = [
@@ -188,46 +204,75 @@ def repeat_print(conn):
             # Create a cursor object
             cursor = conn.cursor()
 
-            # First, move all data from current_esn to archive_esn regardless of the input
+            # First, move all data from current_esn to archive_esn
             cursor.execute(
-                "INSERT INTO archive_esn (serial_number, carrier, fuel_id) SELECT serial_number, carrier, fuel_id FROM current_esn"
+                "INSERT INTO archive_esn (serial_number, carrier, fuel_id,qr_code) SELECT serial_number, carrier, fuel_id,qr_code FROM current_esn"
             )
             cursor.execute("DELETE FROM current_esn")
             conn.commit()
 
+            # define the expected columns (when new columns are added, just update here)
+
+
+
             # Initialize a flag to track if any serial number fails to be processed
-            all_successful = True
+            valid_serials = []
+            invalid_serials = []
+            failed_serials = []
 
             for serial_number in serial_numbers:
                 serial_number = serial_number.strip()
                 if not serial_number:
                     continue
 
-                # Check if the serial number exists in archive_esn
-                cursor.execute("SELECT serial_number FROM archive_esn WHERE serial_number = %s", (serial_number,))
-                result = cursor.fetchone()
+                # Check if the serial number has exactly 12 characters
+                if len(serial_number) != 12:
+                    invalid_serials.append(serial_number)
+                    continue
 
-                if result:
-                    # Move the serial number from archive_esn to current_esn
-                    cursor.execute(
-                        "INSERT INTO current_esn (serial_number, carrier, fuel_id) SELECT serial_number, carrier, fuel_id FROM archive_esn WHERE serial_number = %s",
-                        (serial_number,))
-                    cursor.execute("DELETE FROM archive_esn WHERE serial_number = %s", (serial_number,))
+                try:
+                    # Check if the serial number exists in archive_esn
+                    cursor.execute("SELECT serial_number FROM archive_esn WHERE serial_number = %s", (serial_number,))
+                    result = cursor.fetchone()
+
+                    if result:
+                        # If found in archive_esn, move it to current_esn
+                        cursor.execute(
+                            "INSERT INTO current_esn (serial_number, carrier, fuel_id,qr_code) SELECT serial_number, carrier, fuel_id,qr_code FROM archive_esn WHERE serial_number = %s",
+                            (serial_number,))
+                        cursor.execute("DELETE FROM archive_esn WHERE serial_number = %s", (serial_number,))
+                        valid_serials.append(serial_number)
+                    else:
+                        # If the serial number is not found, create a new ESN
+                        cursor.execute(
+                            "INSERT INTO current_esn (serial_number) VALUES (%s)",
+                            (serial_number,)
+                        )
+                        valid_serials.append(serial_number)
                     conn.commit()
-                else:
-                    # Set the flag to False if any serial number is not found
-                    all_successful = False
-                    break
-
-            # Display a message based on the success status
-            if all_successful:
-                sg.popup('All serial numbers were successfully processed.')
-            else:
-                sg.popup('Some serial numbers could not be processed.')
+                except Error as e:
+                    failed_serials.append(serial_number)
 
             cursor.close()
+
+            # Build the final popup message based on success/failure
+            if invalid_serials or failed_serials:
+                message = 'Some issues occurred:\n'
+                if invalid_serials:
+                    message += f'Invalid serial numbers (not 12 digits): {len(invalid_serials)}\n'
+                if failed_serials:
+                    message += f'Failed serial numbers (database errors): {len(failed_serials)}\n'
+                if valid_serials:
+                    message += f'Successfully processed serial numbers: {len(valid_serials),}'
+            else:
+                message = 'All serial numbers were successfully processed.'
+
+            # Display one popup at the end
+            sg.popup(message)
+
             window.close()
             return
+
 
 
 ######################  Program Features End ######################

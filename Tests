@@ -1,0 +1,3 @@
+1. Create only unique ESN
+2. Can create only serial number, and post it in serial number sql only
+3. Can create serial, or other column entries at the same time
