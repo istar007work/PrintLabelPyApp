@@ -17,6 +17,13 @@ DB_PASSWORD=july5_123$geolp
 DB_NAME=alidb
 '''
 
+''' if using Ali PC use this in ENV version 2 test, 
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=july5_123$geolp
+DB_NAME=printlabelv2
+'''
+
 '''' config when building app for sim computer
 DB_HOST=127.0.0.1
 DB_USER=root
@@ -149,13 +156,13 @@ def view_last_esn(connection):
 
     # Ensure rows is non-empty
     if not rows:
-        rows = [['', '', '', '','']]  # Provide a default empty row with the correct number of columns
+        rows = [['', '', '', '', '', '']]  # Provide a default empty row with the correct number of columns (including date)
 
     # Convert each row from tuple to list and prepend row number starting from 1
     rows = [[i + 1] + list(row) for i, row in enumerate(rows)]
 
-    # Define table headings with Row number
-    headings = ['Row', 'Serial', 'Carrier', 'Fuel ID','QR']
+    # Define table headings with Row number and updated columns including Date
+    headings = ['Row', 'Date', 'Serial', 'Carrier', 'Fuel ID', 'QR']
 
     # Return the layout for the pop-up window
     return [
@@ -164,18 +171,16 @@ def view_last_esn(connection):
             headings=headings,
             display_row_numbers=False,  # We handle row numbers manually
             auto_size_columns=False,  # Disable auto column sizing
-            col_widths=[5, 13, 9, 9,40],  # Set specific column widths
+            col_widths=[5, 12, 13, 9, 9, 40],  # Adjust column widths to include Date
             num_rows=min(25, len(rows)),  # Set number of rows to show at once
-            size=(600, 400),  # Increase the table size (width, height)
+            size=(700, 400),  # Adjust table size (width, height) to fit the new column
             justification='center',
             header_background_color="#305c9c",
             alternating_row_color='#E5E4E2',
             header_text_color='white',
-
-
-
         )]
     ]
+
 
 
 def repeat_print(conn):
@@ -206,7 +211,7 @@ def repeat_print(conn):
 
             # First, move all data from current_esn to archive_esn
             cursor.execute(
-                "INSERT INTO archive_esn (serial_number, carrier, fuel_id,qr_code) SELECT serial_number, carrier, fuel_id,qr_code FROM current_esn"
+                "INSERT INTO archive_esn (date,serial_number, carrier, fuel_id,qr_code) SELECT date,serial_number, carrier, fuel_id,qr_code FROM current_esn"
             )
             cursor.execute("DELETE FROM current_esn")
             conn.commit()
@@ -238,14 +243,14 @@ def repeat_print(conn):
                     if result:
                         # If found in archive_esn, move it to current_esn
                         cursor.execute(
-                            "INSERT INTO current_esn (serial_number, carrier, fuel_id,qr_code) SELECT serial_number, carrier, fuel_id,qr_code FROM archive_esn WHERE serial_number = %s",
+                            "INSERT INTO current_esn (date,serial_number, carrier, fuel_id,qr_code) SELECT date,serial_number, carrier, fuel_id,qr_code FROM archive_esn WHERE serial_number = %s",
                             (serial_number,))
                         cursor.execute("DELETE FROM archive_esn WHERE serial_number = %s", (serial_number,))
                         valid_serials.append(serial_number)
                     else:
                         # If the serial number is not found, create a new ESN
                         cursor.execute(
-                            "INSERT INTO current_esn (serial_number) VALUES (%s)",
+                            "INSERT INTO current_esn (date,serial_number) VALUES (%s)",
                             (serial_number,)
                         )
                         valid_serials.append(serial_number)
@@ -371,12 +376,15 @@ def validate_inputs(model, from_num, to_num):
 # generate serial and store in db
 # this code creates the serial number and the fuel ID, and you need to add here
 def generate_serials(model, from_num, to_num):
+
+    # date
+
+
+
+    # serial number generator
     day_of_year = datetime.now().timetuple().tm_yday
     serials = []
     fuel_id_array = []
-
-
-
 
 
     for num in range(from_num, to_num + 1):
@@ -392,7 +400,7 @@ def generate_serials(model, from_num, to_num):
         fuel_id_array.append(fuel_id)
     return serials, fuel_id_array,
 
-def store_serials_in_db(serials, carrier, fuel_ids=None,qr_codes=None):
+def store_serials_in_db(serials, carrier, fuel_ids=None,qr_codes=None,label_date=None,):
     try:
         for serial_number in serials:
             cursor.execute("SELECT COUNT(*) FROM current_esn WHERE serial_number = %s", (serial_number,))
@@ -405,27 +413,29 @@ def store_serials_in_db(serials, carrier, fuel_ids=None,qr_codes=None):
                 raise Exception(f"Duplicate serial number found in archive_esn: {serial_number}")
 
         # Move current_esn data to archive_esn
-        cursor.execute("INSERT INTO archive_esn (serial_number, carrier, fuel_id,qr_code) SELECT serial_number, carrier, fuel_id,qr_code  FROM current_esn")
+        cursor.execute("INSERT INTO archive_esn (date,serial_number, carrier, fuel_id,qr_code) SELECT date,serial_number, carrier, fuel_id,qr_code  FROM current_esn")
         cursor.execute("DELETE FROM current_esn")
         for i, serial_number in enumerate(serials):
             fuel_id = fuel_ids[i] if fuel_ids and values['-FUELID-'] == 'Yes' else None
             qr_code = qr_codes if qr_codes else None
 
             # print the logs
+            print('This the database function log, here the esn being store:',
+                  label_date)  # log to see what qr it is.
             print('This the database function log, here the esn being store:', serial_number)  # log to see what qr it is.
             print('This the database function log, here the fuelid being store:',fuel_id) # log to see what qr it is.
             print('This the database function log, here the qrcode being store:',qr_code) # log to see what qr it is.
 
             # store in db
-            cursor.execute("INSERT INTO current_esn (serial_number, carrier, fuel_id,qr_code ) VALUES (%s, %s, %s,%s)",
-                           (serial_number, carrier if carrier else None, fuel_id,qr_code))
+            cursor.execute("INSERT INTO current_esn (date,serial_number, carrier, fuel_id,qr_code ) VALUES (%s, %s, %s,%s,%s)",
+                           (label_date,serial_number, carrier if carrier else None, fuel_id,qr_code))
 
 
         conn.commit()
         return True, "Serial numbers generated successfully!"
     except Exception as e:
         conn.rollback()
-        return False, f"Error: {e}"
+        return False, f"Error: {e} not able to push to database"
 
 ######################  Function to validate user input End #######################
 
@@ -462,14 +472,25 @@ while True:
         try:
             if from_num and to_num and model:
                 from_num, to_num = validate_inputs(model, from_num, to_num)
+
+                # create the date
+                label_date = datetime.now().strftime("%Y-%m-%d")
+                print(label_date)
+
+                # serial, fuel_id_array,label_date are variables that will store values returned from  generate_serials function
                 serials, fuel_id_array = generate_serials(model, from_num, to_num)
+                print('After pressing submit log: serial: ',serials)
+                print('After pressing submit log: serial: ',fuel_id_array)
+                print('After pressing submit log: serial: ',label_date)
+
                 fuel_ids = fuel_id_array if values['-FUELID-'] == 'Yes' else None
+
                 # Create a list of QR codes, one for each serial number
                 qr_codes = [qrCode] * len(serials) if qrCode else None
 
 
-
-                success, message = store_serials_in_db(serials, carrier, fuel_ids,qrCode)
+                # push to database the records
+                success, message = store_serials_in_db(serials, carrier, fuel_ids,qr_codes,label_date)
                 if success:
                     window['-STATUS-'].update(message + '\n' + '\n'.join(serials))
                     window['-FROM-'].update("")
@@ -480,55 +501,6 @@ while True:
                     window['-qrLink-'].update("")
 
                     window['total_labels'].update(label_count())
-
-
-
-                    # # Popup to ask user to select a file using checkboxes
-                    # layout = [
-                    #     [sg.Text('Select a file:')],
-                    #     [sg.Checkbox('87.bak', key='-FILE_A-', enable_events=True)],
-                    #     [sg.Checkbox('78.bak', key='-FILE_B-', enable_events=True)],
-                    #     [sg.Button('Open File'), sg.Button('Cancel')]
-                    # ]
-                    # file_window = sg.Window('Choose File', layout)
-                    #
-                    # selected_file = None
-                    # while True:
-                    #     event, values = file_window.read()
-                    #     if event in (sg.WIN_CLOSED, 'Cancel'):
-                    #         file_window.close()
-                    #         break
-                    #
-                    #     # Ensure only one checkbox is selected at a time
-                    #     if event in ('-FILE_A-', '-FILE_B-'):
-                    #         if event == '-FILE_A-':
-                    #             if values['-FILE_A-']:
-                    #                 file_window['-FILE_B-'].update(False)
-                    #                 selected_file = '87.bak'
-                    #             else:
-                    #                 selected_file = None
-                    #         elif event == '-FILE_B-':
-                    #             if values['-FILE_B-']:
-                    #                 file_window['-FILE_A-'].update(False)
-                    #                 selected_file = '78.bak'
-                    #             else:
-                    #                 selected_file = None
-                    #
-                    #     if event == 'Open File':
-                    #         if selected_file:
-                    #             file_path = os.path.join(os.getcwd(), selected_file)
-                    #             if os.path.exists(file_path):
-                    #                 try:
-                    #                     subprocess.run(['start', file_path], check=True, shell=True)
-                    #                 except subprocess.CalledProcessError as e:
-                    #                     window['-STATUS-'].update(f"Failed to open file: {e}")
-                    #             else:
-                    #                 window['-STATUS-'].update(f"File {selected_file} not found.")
-                    #             file_window.close()
-                    #             break
-                    #         else:
-                    #             sg.popup("Please select a file.")
-                    # file_window.close()
 
                 else:
                     window['-STATUS-'].update(message)
