@@ -9,6 +9,9 @@ from mysql.connector.errors import Error
 
 
 
+###### notes what to work on
+# bug in last print when checkbox feature is used
+
 
 ''' if using Ali PC use this in ENV
 DB_HOST=localhost
@@ -468,7 +471,7 @@ layout = [
     [sg.Text("Total labels today:",font=('Arial', 8),justification='center'),sg.Text(key='total_labels',font=('Arial', 8))],
 ]
 
-window = sg.Window('Serial Manager October 2024', layout,icon='appico.ico', element_justification='left',finalize=True,titlebar_background_color="black")
+window = sg.Window('Serial Manager November 2024', layout,icon='appico.ico', element_justification='left',finalize=True,titlebar_background_color="black")
 
 # Update the total labels on startup
 initial_count = label_count()  # Fetch initial count
@@ -570,9 +573,66 @@ def store_serials_in_db(serials, carrier, fuel_ids=None,qr_codes=None,label_date
         conn.rollback()
         return False, f"Error: {e} not able to push to database"
 
+
+
+
+# QR FUNCTION START
 # This function stores numbers with qr functionality when user hits checkbox
-def StoreSerialWithQRCode():
-    pass
+def StoreSerialWithQRCode(serials, carrier, qrCode, label_date):
+    try:
+        # Connect to the MySQL database using your predefined db_config
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+
+        # Iterate over each serial number
+        for serial_number in serials:
+            # Step 1: Find the latest QR code row in `tenna_qr` where serial_number is NULL
+            query_find_qr = """
+            SELECT qr_code
+            FROM tenna_qr
+            WHERE serial_number IS NULL
+            ORDER BY qr_code_date DESC
+            LIMIT 1
+            """
+            cursor.execute(query_find_qr)
+            qr_code_row = cursor.fetchone()
+
+            if qr_code_row:
+                qr_code = qr_code_row[0]
+
+                # Step 2: Update the found row in `tenna_qr` with the serial number and other details
+                query_update_qr = """
+                UPDATE tenna_qr
+                SET serial_date = %s, serial_number = %s
+                WHERE qr_code = %s AND serial_number IS NULL
+                LIMIT 1
+                """
+                cursor.execute(query_update_qr, (label_date, serial_number, qr_code))
+                connection.commit()
+
+                # Step 3: Insert into `current_esn` table after updating `tenna_qr`
+                query_insert_current = """
+                INSERT INTO current_esn (date, serial_number, carrier, qr_code)
+                VALUES (%s, %s, %s, %s)
+                """
+                cursor.execute(query_insert_current, (label_date, serial_number, carrier, qr_code))
+                connection.commit()
+
+        success = True
+        message = "Serial numbers stored successfully in both tenna_qr and current_esn tables."
+
+    except mysql.connector.Error as err:
+        success = False
+        message = f"Error: {str(err)}"
+
+    finally:
+        # Ensure that the database connection is closed
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
+    return success, message
+
 
 
 # This function pushes serial to database - when QR is checked
@@ -637,8 +697,8 @@ while True:
 
                 # logic is user has checked marked QR CODE, then use the QR function
                 if qrLinkCheck:
-                    success,message
-                    StoreSerialWithQRCode()
+                    success, message = StoreSerialWithQRCode(serials, carrier, qrCode, label_date)
+
                 else:
                     # push to database using the regular storing db function
                     success, message = store_serials_in_db(serials, carrier, fuel_ids, qrCode, label_date)
