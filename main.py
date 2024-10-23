@@ -279,6 +279,118 @@ def repeat_print(conn):
             return
 
 
+# add qr codes to database
+def add_qrCodes():
+    # Define the layout of the window
+    layout = [
+        [sg.Text('Upload a text file with QR codes')],
+        [sg.Input(key='-FILE-', enable_events=True), sg.FileBrowse(file_types=(("Text Files", "*.txt"),))],
+        [sg.ProgressBar(max_value=100, orientation='h', size=(35, 20), key='-PROGRESS-', visible=False,
+                        bar_color=('#2c5c9d', '#DAD9D5'))],
+        [sg.Button('Submit'), sg.Button('Cancel')]
+    ]
+
+    window = sg.Window('Upload QR Codes', layout)
+
+    upload_in_progress = False
+
+    while True:
+        event, values = window.read(timeout=100)  # Timeout added to make the interface responsive
+
+        if event in (sg.WIN_CLOSED, 'Cancel'):
+            break
+
+        if event == 'Submit':
+            file_path = values['-FILE-']
+            if not file_path:
+                sg.popup('Please select a file to upload.')
+                continue
+
+            # Read the file contents
+            try:
+                with open(file_path, 'r') as file:
+                    qr_codes = file.read().splitlines()
+            except Exception as e:
+                sg.popup(f"Error reading file: {e}")
+                continue
+
+            if not qr_codes:
+                sg.popup('The file is empty. Please upload a valid file.')
+                continue
+
+            # Get the current date for qr_code_date
+            qr_code_date = datetime.now().strftime('%Y-%m-%d')
+
+            # Check for duplicates before uploading
+            duplicate_qr_codes = []
+            non_duplicate_qr_codes = []
+
+            try:
+                for qr_code in qr_codes:
+                    cursor.execute("SELECT COUNT(*) FROM tenna_qr WHERE qr_code = %s", (qr_code,))
+                    result = cursor.fetchone()
+                    if result[0] > 0:
+                        duplicate_qr_codes.append(qr_code)
+                    else:
+                        non_duplicate_qr_codes.append(qr_code)
+            except Exception as e:
+                sg.popup(f"Database error while checking duplicates: {e}")
+                continue
+
+            # If duplicates are found, show a popup with duplicates
+            if duplicate_qr_codes:
+                sg.popup(f"Duplicate QR codes found. Please check file and upload again.", title="Alert",
+                         keep_on_top=True)
+                continue
+
+            if not non_duplicate_qr_codes:
+                sg.popup("No new QR codes to upload.", title="No New Data")
+                continue
+
+            # Show the progress bar while pushing non-duplicate data
+            window['-PROGRESS-'].update(visible=True)
+            window.refresh()
+
+            total_count = len(non_duplicate_qr_codes)
+            success_count = 0
+            upload_in_progress = True
+
+            try:
+                for i, qr_code in enumerate(non_duplicate_qr_codes):
+                    # Check if the user clicked "Cancel" during the upload
+                    event, _ = window.read(timeout=0)
+                    if event == 'Cancel':
+                        sg.popup('Upload interrupted by user.', title='Alert')
+                        break
+
+                    # Insert the data into MySQL
+                    cursor.execute(
+                        "INSERT INTO tenna_qr (qr_code_date, qr_code) VALUES (%s, %s)",
+                        (qr_code_date, qr_code)
+                    )
+                    conn.commit()
+
+                    # Update progress bar
+                    progress = int((i + 1) / total_count * 100)
+                    window['-PROGRESS-'].update(progress)
+                    window.refresh()
+
+                    success_count += 1
+
+                else:  # If the loop wasn't interrupted by 'Cancel'
+                    sg.popup(f"Success! {success_count} QR codes have been pushed to the database.", title='Success')
+                    upload_in_progress = False
+                    break
+
+            except Exception as e:
+                conn.rollback()
+                sg.popup(f"Error pushing data to the database: {e}")
+
+            # Hide progress bar after completion or interruption
+            window['-PROGRESS-'].update(visible=False)
+
+    window.close()
+
 
 ######################  Program Features End ######################
 
@@ -314,8 +426,21 @@ def open_popup(layout, title):
 # Main window layout
 # Set the global icon
 sg.set_options(icon="appico.ico")
+
+# create the menu
+menu_def = [
+    ['Menu', ['Help']],
+    ['Tenna', ['Count QR code','Upload QR code']]
+]
+
+
+
 layout = [
-    [sg.Menu([['Menu', ['Help']]])],
+    [sg.Menu(menu_def,
+             disabled_text_color='gray',
+             key='-MENU-',)],
+
+
     [sg.Text("                       "), sg.Image(filename=image_path, size=(100, 100)),
      sg.Text("Geometris Serial Manager Application", font=('Arial', 16))],  # Add the image to the layout
     [sg.Text('Enter 3-digit model:     ', font=('Arial', 12)),
@@ -331,6 +456,9 @@ layout = [
     [sg.Text('QR Links:                     ', font=('Arial', 12)),
      sg.Combo(qr_strings, key='-qrLink-', readonly=True, font=('Arial', 12), size=(59, 10))],
 
+    [sg.Text('QR:                              ', font=('Arial', 12)),
+     sg.Checkbox('Enable QR', key='-qrLinkcheck-', font=('Arial', 12))],
+
     [sg.Button('Submit', font=('Arial', 15),size=(15,2), border_width=2, bind_return_key=True,button_color=('white','#305c9c'),mouseover_colors='gray'),
      sg.Button('View Last Print', font=('Arial', 15),size=(15,2),border_width=2,mouseover_colors='gray'),
     sg.Button('Reprint', font=('Arial', 15),size=(15,2),border_width=2,mouseover_colors='gray'),
@@ -340,7 +468,7 @@ layout = [
     [sg.Text("Total labels today:",font=('Arial', 8),justification='center'),sg.Text(key='total_labels',font=('Arial', 8))],
 ]
 
-window = sg.Window('Serial Manager October 2024', layout,icon='appico.ico', element_justification='left',finalize=True)
+window = sg.Window('Serial Manager October 2024', layout,icon='appico.ico', element_justification='left',finalize=True,titlebar_background_color="black")
 
 # Update the total labels on startup
 initial_count = label_count()  # Fetch initial count
@@ -377,7 +505,9 @@ def validate_inputs(model, from_num, to_num):
 # this code creates the serial number and the fuel ID, and you need to add here
 def generate_serials(model, from_num, to_num):
 
-    # date
+    # create the date
+    label_date = datetime.now().strftime("%Y-%m-%d")
+    print(label_date)
 
 
 
@@ -398,8 +528,11 @@ def generate_serials(model, from_num, to_num):
         print(fuel_id)
         serials.append(serial_number)
         fuel_id_array.append(fuel_id)
-    return serials, fuel_id_array,
+    return serials, fuel_id_array, label_date
 
+
+
+# This function pushes serial to database - regular
 def store_serials_in_db(serials, carrier, fuel_ids=None,qr_codes=None,label_date=None,):
     try:
         for serial_number in serials:
@@ -437,6 +570,19 @@ def store_serials_in_db(serials, carrier, fuel_ids=None,qr_codes=None,label_date
         conn.rollback()
         return False, f"Error: {e} not able to push to database"
 
+# This function stores numbers with qr functionality when user hits checkbox
+def StoreSerialWithQRCode():
+    pass
+
+
+# This function pushes serial to database - when QR is checked
+#It will first push to the tenna_qr table, where the serial numbers are initially stored with the QR code. After that, they will be moved to the current table.
+# Logic: 1. serial number goes to qr table, and looks for the latest qr code that does not have any serial number in the same row, and then stores serial numbers there for i
+
+
+
+
+
 ######################  Function to validate user input End #######################
 
 
@@ -463,6 +609,7 @@ while True:
         model = values['-MODEL-']
         carrier = values['-CARRIER-']
         qrCode = values['-qrLink-']  # Get the selected QR code from the dropdown
+        qrLinkCheck = values['-qrLinkcheck-']
         print(qrCode)
 
 
@@ -473,24 +620,29 @@ while True:
             if from_num and to_num and model:
                 from_num, to_num = validate_inputs(model, from_num, to_num)
 
-                # create the date
-                label_date = datetime.now().strftime("%Y-%m-%d")
-                print(label_date)
+
 
                 # serial, fuel_id_array,label_date are variables that will store values returned from  generate_serials function
-                serials, fuel_id_array = generate_serials(model, from_num, to_num)
+                serials, fuel_id_array,label_date = generate_serials(model, from_num, to_num)
                 print('After pressing submit log: serial: ',serials)
                 print('After pressing submit log: serial: ',fuel_id_array)
                 print('After pressing submit log: serial: ',label_date)
 
                 fuel_ids = fuel_id_array if values['-FUELID-'] == 'Yes' else None
 
+                # void below
                 # Create a list of QR codes, one for each serial number
-                qr_codes = [qrCode] * len(serials) if qrCode else None
+                #qr_codes = [qrCode] * len(serials) if qrCode else None
 
 
-                # push to database the records
-                success, message = store_serials_in_db(serials, carrier, fuel_ids,qr_codes,label_date)
+                # logic is user has checked marked QR CODE, then use the QR function
+                if qrLinkCheck:
+                    success,message
+                    StoreSerialWithQRCode()
+                else:
+                    # push to database using the regular storing db function
+                    success, message = store_serials_in_db(serials, carrier, fuel_ids, qrCode, label_date)
+                # print to window when success, and clear the inputs
                 if success:
                     window['-STATUS-'].update(message + '\n' + '\n'.join(serials))
                     window['-FROM-'].update("")
@@ -505,11 +657,6 @@ while True:
                 else:
                     window['-STATUS-'].update(message)
 
-
-
-
-
-
         except ValueError as ve:
             window['-STATUS-'].update(f"Input Error: {str(ve)}")
 
@@ -518,17 +665,12 @@ while True:
         layout = view_last_esn(conn)
         open_popup(layout, 'Last Print')
 
-
     elif event == 'Reprint':
         # Run the repeat_print function
         repeat_print(conn)
 
-
-    elif event in ['Help']:
-
-        if event == 'Help':
-            layout = help()
-            open_popup(layout, 'Help')
+    elif event == 'Upload QR code':
+        add_qrCodes()
 
 
 # Close connections
