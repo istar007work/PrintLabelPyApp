@@ -11,7 +11,7 @@ import csv
 
 
 ###### notes what to work on
-# now remove the drodown qr code ,and usebox to all,
+# when there is no enogh qr left, the loading sign was not off, it hid the messgae ,fix it
 
 
 ''' if using Ali PC use this in ENV
@@ -591,8 +591,8 @@ layout = [
     [sg.Text('Fuel ID:                         ', font=('Arial', 12)),
      sg.Combo(['Yes', 'No'], key='-FUELID-', readonly=True, font=('Arial', 30), size=(24, 2))],
 
-    [sg.Text('QR Links:                     ', font=('Arial', 12)),
-     sg.Combo(qr_strings, key='-qrLink-', readonly=True, font=('Arial', 12), size=(59, 10))],
+    #[sg.Text('QR Links:                     ', font=('Arial', 12)),
+     #sg.Combo(qr_strings, key='-qrLink-', readonly=True, font=('Arial', 12), size=(59, 10))],
 
     [sg.Text('QR:                              ', font=('Arial', 12)),
      sg.Checkbox('Enable QR', key='-qrLinkcheck-', font=('Arial', 12))],
@@ -671,7 +671,7 @@ def generate_serials(model, from_num, to_num):
 
 
 # This function pushes serial to database - regular
-def store_serials_in_db(serials, carrier, fuel_ids=None,qr_codes=None,label_date=None,):
+def store_serials_in_db(serials, carrier, fuel_ids=None, label_date=None):
     try:
         for serial_number in serials:
             cursor.execute("SELECT COUNT(*) FROM current_esn WHERE serial_number = %s", (serial_number,))
@@ -683,32 +683,28 @@ def store_serials_in_db(serials, carrier, fuel_ids=None,qr_codes=None,label_date
             if result_archive[0] > 0:
                 raise Exception(f"Duplicate serial number found in archive_esn: {serial_number}")
 
-        # Move current_esn data to archive_esn
-        cursor.execute("INSERT INTO archive_esn (date,serial_number, carrier, fuel_id,qr_code) SELECT date,serial_number, carrier, fuel_id,qr_code  FROM current_esn")
+        # Move current_esn data to archive_esn without qr_code
+        cursor.execute(
+            "INSERT INTO archive_esn (date, serial_number, carrier, fuel_id) SELECT date, serial_number, carrier, fuel_id FROM current_esn")
         cursor.execute("DELETE FROM current_esn")
+
         for i, serial_number in enumerate(serials):
             fuel_id = fuel_ids[i] if fuel_ids and values['-FUELID-'] == 'Yes' else None
-            qr_code = qr_codes if qr_codes else None
 
-            # print the logs
-            print('This the database function log, here the esn being store:',
-                  label_date)  # log to see what qr it is.
-            print('This the database function log, here the esn being store:', serial_number)  # log to see what qr it is.
-            print('This the database function log, here the fuelid being store:',fuel_id) # log to see what qr it is.
-            print('This the database function log, here the qrcode being store:',qr_code) # log to see what qr it is.
+            # Logging to see the values
+            print('This the database function log, date being stored:', label_date)
+            print('This the database function log, serial number being stored:', serial_number)
+            print('This the database function log, fuel_id being stored:', fuel_id)
 
-            # store in db
-            cursor.execute("INSERT INTO current_esn (date,serial_number, carrier, fuel_id,qr_code ) VALUES (%s, %s, %s,%s,%s)",
-                           (label_date,serial_number, carrier if carrier else None, fuel_id,qr_code))
-
+            # Store in db without qr_code
+            cursor.execute("INSERT INTO current_esn (date, serial_number, carrier, fuel_id) VALUES (%s, %s, %s, %s)",
+                           (label_date, serial_number, carrier if carrier else None, fuel_id))
 
         conn.commit()
         return True, "Serial numbers generated successfully!"
     except Exception as e:
         conn.rollback()
         return False, f"Error: {e} not able to push to database"
-
-
 
 
 # QR FUNCTION START
@@ -783,14 +779,14 @@ def StoreSerialWithQRCode(serials, carrier, qrCode, label_date):
 
 
 
-# Function to process the serials and show a progress popup
-def StoreSerialWithQRCode(serials, carrier, qrCode, label_date):
+# Function to process the serials when QR is checked
+def StoreSerialWithQRCode(serials, carrier, label_date):
     try:
         # Show a progress bar (indeterminate)
         progress_bar = sg.Window(
             'Processing...',
             [[sg.Text('Please wait, generating serials...')],
-             [sg.ProgressBar(1, orientation='h', size=(20, 20), key='progress',bar_color=('#2c5c9d', '#DAD9D5'))]],
+             [sg.ProgressBar(1, orientation='h', size=(20, 20), key='progress', bar_color=('#2c5c9d', '#DAD9D5'))]],
             keep_on_top=True,
             finalize=True
         )
@@ -799,21 +795,23 @@ def StoreSerialWithQRCode(serials, carrier, qrCode, label_date):
 
         cursor = conn.cursor()
 
-        # Step 1: Find the latest QR code row in `tenna_qr` where serial_number is NULL
+        # Step 1: Find multiple QR code rows where serial_number is NULL, matching the number of serials
         query_find_qr = """
         SELECT qr_code
         FROM tenna_qr
         WHERE serial_number IS NULL
         ORDER BY qr_code_date DESC
-        LIMIT 1
+        LIMIT %s
         """
-        cursor.execute(query_find_qr)
-        qr_code_row = cursor.fetchone()
+        cursor.execute(query_find_qr, (len(serials),))  # Fetch enough QR codes
+        qr_code_rows = cursor.fetchall()
 
-        # If a QR code with NULL serial number is found
-        if qr_code_row:
-            qr_code = qr_code_row[0]
-
+        # Check if enough QR codes were retrieved
+        if len(qr_code_rows) < len(serials):
+            sg.popup(f"Not enough available QR codes found. Found {len(qr_code_rows)} but {len(serials)} needed.")
+            success = False
+            message = f"Not enough QR codes available."
+        else:
             # Step 2: Clear all data from the current_esn table before adding new serial numbers
             query_clear_current_esn = "DELETE FROM current_esn"
             cursor.execute(query_clear_current_esn)
@@ -821,13 +819,13 @@ def StoreSerialWithQRCode(serials, carrier, qrCode, label_date):
 
             # Step 3: Iterate over each serial number and update both tables
             total_serials = len(serials)
-            for i, serial_number in enumerate(serials):
-                # Update the progress (indeterminate, just showing movement)
+            for i, (serial_number, qr_code_row) in enumerate(zip(serials, qr_code_rows)):
+                qr_code = qr_code_row[0]  # Get the QR code for this iteration
+
+                # Update the progress
                 progress_elem.update_bar((i + 1) / total_serials)
 
-
-
-                # Update the found row in `tenna_qr` with the serial number and other details
+                # Update the corresponding row in `tenna_qr` with the serial number and other details
                 query_update_qr = """
                 UPDATE tenna_qr
                 SET serial_date = %s, serial_number = %s
@@ -847,10 +845,6 @@ def StoreSerialWithQRCode(serials, carrier, qrCode, label_date):
 
             success = True
             message = "Serial numbers stored successfully in both tenna_qr and current_esn tables."
-        else:
-            sg.popup("No available QR code found with a null serial number.")
-            success = False
-            message = "No available QR code found with a null serial number."
 
     except mysql.connector.Error as err:
         success = False
@@ -861,6 +855,7 @@ def StoreSerialWithQRCode(serials, carrier, qrCode, label_date):
         progress_bar.close()
 
     return success, message
+
 
 
 # This function pushes serial to database - when QR is checked
@@ -896,9 +891,9 @@ while True:
         to_num = values['-TO-']
         model = values['-MODEL-']
         carrier = values['-CARRIER-']
-        qrCode = values['-qrLink-']  # Get the selected QR code from the dropdown
+        #qrCode = values['-qrLink-']  # Get the selected QR code from the dropdown
         qrLinkCheck = values['-qrLinkcheck-']
-        print(qrCode)
+
 
 
         if not from_num or not to_num or not model or not carrier:
@@ -925,11 +920,11 @@ while True:
 
                 # logic is user has checked marked QR CODE, then use the QR function
                 if qrLinkCheck:
-                    success, message = StoreSerialWithQRCode(serials, carrier, qrCode, label_date)
+                    success, message = StoreSerialWithQRCode(serials, carrier ,label_date)
 
                 else:
                     # push to database using the regular storing db function
-                    success, message = store_serials_in_db(serials, carrier, fuel_ids, qrCode, label_date)
+                    success, message = store_serials_in_db(serials, carrier, fuel_ids, label_date)
                 # print to window when success, and clear the inputs
                 if success:
                     window['-STATUS-'].update(message + '\n' + '\n'.join(serials))
@@ -938,7 +933,7 @@ while True:
                     window['-MODEL-'].update("")
                     window['-CARRIER-'].update("")
                     window['-FUELID-'].update("")
-                    window['-qrLink-'].update("")
+                    #window['-qrLink-'].update("")
 
                     window['total_labels'].update(label_count())
 
