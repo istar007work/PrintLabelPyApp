@@ -6,11 +6,12 @@ from dotenv import load_dotenv
 import subprocess
 import os
 from mysql.connector.errors import Error
+import csv
 
 
 
 ###### notes what to work on
-# bug in last print when checkbox feature is used
+# now remove the drodown qr code ,and usebox to all,
 
 
 ''' if using Ali PC use this in ENV
@@ -142,6 +143,9 @@ def read_qr_strings_from_file():
 carrierFile = read_carrier_text()
 qr_strings = read_qr_strings_from_file()
 
+
+
+
 ######################  Text file reading End ######################
 
 
@@ -152,49 +156,53 @@ qr_strings = read_qr_strings_from_file()
 
 ###################### Program Features ######################
 def view_last_esn(connection):
-    cursor = connection.cursor()
-    cursor.execute("SELECT * FROM current_esn")
-    rows = cursor.fetchall()
-    cursor.close()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT * FROM current_esn")
+        rows = cursor.fetchall()
+        cursor.close()
 
-    # Ensure rows is non-empty
-    if not rows:
-        rows = [['', '', '', '', '', '']]  # Provide a default empty row with the correct number of columns (including date)
+        # Ensure rows is non-empty
+        if not rows:
+            rows = [['', '', '', '', '', '']]  # Provide a default empty row with the correct number of columns (including date)
 
-    # Convert each row from tuple to list and prepend row number starting from 1
-    rows = [[i + 1] + list(row) for i, row in enumerate(rows)]
+        # Convert each row from tuple to list and prepend row number starting from 1
+        rows = [[i + 1] + list(row) for i, row in enumerate(rows)]
 
-    # Define table headings with Row number and updated columns including Date
-    headings = ['Row', 'Date', 'Serial', 'Carrier', 'Fuel ID', 'QR']
+        # Define table headings with Row number and updated columns including Date
+        headings = ['Row', 'Date', 'Serial', 'Carrier', 'Fuel ID', 'QR']
 
-    # Return the layout for the pop-up window
-    return [
-        [sg.Table(
-            values=rows,
-            headings=headings,
-            display_row_numbers=False,  # We handle row numbers manually
-            auto_size_columns=False,  # Disable auto column sizing
-            col_widths=[5, 12, 13, 9, 9, 40],  # Adjust column widths to include Date
-            num_rows=min(25, len(rows)),  # Set number of rows to show at once
-            size=(700, 400),  # Adjust table size (width, height) to fit the new column
-            justification='center',
-            header_background_color="#305c9c",
-            alternating_row_color='#E5E4E2',
-            header_text_color='white',
-        )]
-    ]
-
+        # Return the layout for the pop-up window
+        return [
+            [sg.Table(
+                values=rows,
+                headings=headings,
+                display_row_numbers=False,  # We handle row numbers manually
+                auto_size_columns=False,  # Disable auto column sizing
+                col_widths=[5, 12, 13, 9, 9, 40],  # Adjust column widths to include Date
+                num_rows=min(25, len(rows)),  # Set number of rows to show at once
+                size=(700, 400),  # Adjust table size (width, height) to fit the new column
+                justification='center',
+                header_background_color="#305c9c",
+                alternating_row_color='#E5E4E2',
+                header_text_color='white',
+            )]
+        ]
+    except mysql.connector.Error as err:
+        sg.popup_error(f"Database error: {str(err)}")  # Display any database errors
+        return []  # Return empty if error
 
 
 def repeat_print(conn):
     # Define the layout of the window
     layout = [
+        [sg.Text('This will reprint existing serial numbers or create new ones if they do not exist.')],
         [sg.Text('Enter Serial Numbers (one per line):')],
-        [sg.Multiline(size=(40, 10), key='-SERIAL_NUMBERS-')],
+        [sg.Multiline(size=(60, 10), key='-SERIAL_NUMBERS-')],
         [sg.Button('Submit'), sg.Button('Cancel')]
     ]
 
-    window = sg.Window('Reprint Serial Numbers', layout)
+    window = sg.Window('Reprint or Create Serial Numbers', layout)
 
     while True:
         event, values = window.read()
@@ -214,19 +222,17 @@ def repeat_print(conn):
 
             # First, move all data from current_esn to archive_esn
             cursor.execute(
-                "INSERT INTO archive_esn (date,serial_number, carrier, fuel_id,qr_code) SELECT date,serial_number, carrier, fuel_id,qr_code FROM current_esn"
+                "INSERT INTO archive_esn (date, serial_number, carrier, fuel_id, qr_code) "
+                "SELECT date, serial_number, carrier, fuel_id, qr_code FROM current_esn"
             )
             cursor.execute("DELETE FROM current_esn")
             conn.commit()
 
-            # define the expected columns (when new columns are added, just update here)
-
-
-
-            # Initialize a flag to track if any serial number fails to be processed
+            # Initialize lists to track processing status
             valid_serials = []
             invalid_serials = []
             failed_serials = []
+            newly_created_serials = []
 
             for serial_number in serial_numbers:
                 serial_number = serial_number.strip()
@@ -241,38 +247,55 @@ def repeat_print(conn):
                 try:
                     # Check if the serial number exists in archive_esn
                     cursor.execute("SELECT serial_number FROM archive_esn WHERE serial_number = %s", (serial_number,))
-                    result = cursor.fetchone()
+                    result_archive = cursor.fetchone()
 
-                    if result:
+                    # Check if the serial number exists in current_esn
+                    cursor.execute("SELECT serial_number FROM current_esn WHERE serial_number = %s", (serial_number,))
+                    result_current = cursor.fetchone()
+
+                    if result_archive:
                         # If found in archive_esn, move it to current_esn
                         cursor.execute(
-                            "INSERT INTO current_esn (date,serial_number, carrier, fuel_id,qr_code) SELECT date,serial_number, carrier, fuel_id,qr_code FROM archive_esn WHERE serial_number = %s",
-                            (serial_number,))
-                        cursor.execute("DELETE FROM archive_esn WHERE serial_number = %s", (serial_number,))
-                        valid_serials.append(serial_number)
-                    else:
-                        # If the serial number is not found, create a new ESN
-                        cursor.execute(
-                            "INSERT INTO current_esn (date,serial_number) VALUES (%s)",
+                            "INSERT INTO current_esn (date, serial_number, carrier, fuel_id, qr_code) "
+                            "SELECT date, serial_number, carrier, fuel_id, qr_code FROM archive_esn WHERE serial_number = %s",
                             (serial_number,)
                         )
+                        cursor.execute("DELETE FROM archive_esn WHERE serial_number = %s", (serial_number,))
                         valid_serials.append(serial_number)
+
+                    elif result_current:
+                        # If already exists in current_esn, no need to move or create
+                        valid_serials.append(serial_number)
+
+                    else:
+                        # If serial doesn't exist in either, create a new record in current_esn
+                        cursor.execute(
+                            "INSERT INTO current_esn (date, serial_number) VALUES (NOW(), %s)",
+                            (serial_number,)
+                        )
+                        newly_created_serials.append(serial_number)
+                        valid_serials.append(serial_number)
+
                     conn.commit()
-                except Error as e:
+
+                except mysql.connector.Error as e:
                     failed_serials.append(serial_number)
 
             cursor.close()
 
             # Build the final popup message based on success/failure
-            if invalid_serials or failed_serials:
-                message = 'Some issues occurred:\n'
-                if invalid_serials:
-                    message += f'Invalid serial numbers (not 12 digits): {len(invalid_serials)}\n'
-                if failed_serials:
-                    message += f'Failed serial numbers (database errors): {len(failed_serials)}\n'
-                if valid_serials:
-                    message += f'Successfully processed serial numbers: {len(valid_serials),}'
-            else:
+            message = ""
+            if invalid_serials:
+                message += f'Invalid serial numbers (not 12 digits): {len(invalid_serials)}\n'
+            if failed_serials:
+                message += f'Failed serial numbers (database errors): {len(failed_serials)}\n'
+            if valid_serials:
+                message += f'Successfully processed serial numbers: {len(valid_serials)}\n'
+            if newly_created_serials:
+                message += f'New serial numbers created: {len(newly_created_serials)}\n'
+                message += "These serial numbers didn't exist in the database but have been created for you.\n"
+
+            if not message:
                 message = 'All serial numbers were successfully processed.'
 
             # Display one popup at the end
@@ -394,6 +417,117 @@ def add_qrCodes():
 
     window.close()
 
+# count remaining QR codes with has null serial number
+def count_remaining_qr():
+    try:
+        # Define the layout
+        layout = [
+            [sg.CalendarButton("Choose From Date", target='from_date', format="%Y-%m-%d", size=(15, 1)),
+             sg.Input(key='from_date', size=(15, 1), disabled=True)],
+            [sg.CalendarButton("Choose To Date", target='to_date', format="%Y-%m-%d", size=(15, 1)),
+             sg.Input(key='to_date', size=(15, 1), disabled=True)],
+            [sg.Button('Search', size=(15, 1)), sg.Button('Download CSV', size=(15, 1))],
+            [sg.Text("Remaining QR codes with no serial number:", size=(40, 1), key='remaining_count')],
+            [sg.Table(values=[], headings=['QR Code Date', 'QR Code', 'Serial Date', 'Serial Number', 'Batch Number'],
+                      key='table', auto_size_columns=True, justification='center', num_rows=10)],
+        ]
+
+        # Create the window
+        window = sg.Window('QR Code Data', layout, finalize=True, element_justification='left')
+
+        while True:
+            event, values = window.read()
+
+            if event == sg.WIN_CLOSED:
+                break
+
+            if event == 'Search':
+                from_date = values['from_date'] if values['from_date'] else None
+                to_date = values['to_date'] if values['to_date'] else None
+
+                # Connect to the database and fetch the data
+                cursor = conn.cursor()
+
+                # Count query for QR codes with null serial numbers
+                query_count = """
+                SELECT COUNT(*)
+                FROM tenna_qr
+                WHERE serial_number IS NULL
+                """
+                cursor.execute(query_count)
+                remaining_qr_count = cursor.fetchone()[0]
+
+                # Query to fetch QR data with optional date range filters
+                query_data = """
+                SELECT qr_code_date, qr_code, serial_date, serial_number, batch_number
+                FROM tenna_qr
+                WHERE 1=1
+                """
+                params = []
+                if from_date:
+                    query_data += " AND qr_code_date >= %s"
+                    params.append(from_date)
+                if to_date:
+                    query_data += " AND qr_code_date <= %s"
+                    params.append(to_date)
+
+                cursor.execute(query_data, params)
+                results = cursor.fetchall()
+                cursor.close()
+
+                # If no data found in the date range, show an error popup
+                if not results:
+                    sg.popup_error("No data found in the specified date range.")
+                else:
+                    # Update remaining count text
+                    window['remaining_count'].update(f"Remaining QR codes with no serial number: {remaining_qr_count}")
+
+                    # Update table with results
+                    window['table'].update(values=results)
+
+            if event == 'Download CSV':
+                from_date = values['from_date'] if values['from_date'] else None
+                to_date = values['to_date'] if values['to_date'] else None
+
+                # Fetch data again for CSV export
+                cursor = conn.cursor()
+                query_data = """
+                SELECT qr_code_date, qr_code, serial_date, serial_number, batch_number
+                FROM tenna_qr
+                WHERE 1=1
+                """
+                params = []
+                if from_date:
+                    query_data += " AND qr_code_date >= %s"
+                    params.append(from_date)
+                if to_date:
+                    query_data += " AND qr_code_date <= %s"
+                    params.append(to_date)
+
+                cursor.execute(query_data, params)
+                results = cursor.fetchall()
+                cursor.close()
+
+                # If no data to export, show an error popup
+                if not results:
+                    sg.popup_error("No data available to export.")
+                else:
+                    # Save CSV
+                    filename = sg.popup_get_file('Save as', save_as=True, no_window=True, file_types=(("CSV Files", "*.csv"),))
+                    if filename:
+                        with open(filename, 'w', newline='') as csvfile:
+                            writer = csv.writer(csvfile)
+                            headers = ['QR Code Date', 'QR Code', 'Serial Date', 'Serial Number', 'Batch Number']
+                            writer.writerow(headers)
+                            writer.writerows(results)
+                        sg.popup(f"Data saved as {filename}")
+
+        window.close()
+    except mysql.connector.Error as err:
+        sg.popup_error(f"Error: {err}")
+
+
+
 
 ######################  Program Features End ######################
 
@@ -433,7 +567,7 @@ sg.set_options(icon="appico.ico")
 # create the menu
 menu_def = [
     ['Menu', ['Help']],
-    ['Tenna', ['Count QR code','Upload QR code']]
+    ['Tenna', ['Count QR','Upload QR code']]
 ]
 
 
@@ -456,6 +590,7 @@ layout = [
      sg.Combo(carrierFile, key='-CARRIER-', readonly=True, font=('Arial', 30), size=(24, 10))],
     [sg.Text('Fuel ID:                         ', font=('Arial', 12)),
      sg.Combo(['Yes', 'No'], key='-FUELID-', readonly=True, font=('Arial', 30), size=(24, 2))],
+
     [sg.Text('QR Links:                     ', font=('Arial', 12)),
      sg.Combo(qr_strings, key='-qrLink-', readonly=True, font=('Arial', 12), size=(59, 10))],
 
@@ -578,29 +713,36 @@ def store_serials_in_db(serials, carrier, fuel_ids=None,qr_codes=None,label_date
 
 # QR FUNCTION START
 # This function stores numbers with qr functionality when user hits checkbox
+'''
 def StoreSerialWithQRCode(serials, carrier, qrCode, label_date):
     try:
-        # Connect to the MySQL database using your predefined db_config
-        connection = mysql.connector.connect(**db_config)
-        cursor = connection.cursor()
 
-        # Iterate over each serial number
-        for serial_number in serials:
-            # Step 1: Find the latest QR code row in `tenna_qr` where serial_number is NULL
-            query_find_qr = """
-            SELECT qr_code
-            FROM tenna_qr
-            WHERE serial_number IS NULL
-            ORDER BY qr_code_date DESC
-            LIMIT 1
-            """
-            cursor.execute(query_find_qr)
-            qr_code_row = cursor.fetchone()
 
-            if qr_code_row:
-                qr_code = qr_code_row[0]
+        cursor = conn.cursor()
 
-                # Step 2: Update the found row in `tenna_qr` with the serial number and other details
+        # Step 1: Find the latest QR code row in `tenna_qr` where serial_number is NULL
+        query_find_qr = """
+        SELECT qr_code
+        FROM tenna_qr
+        WHERE serial_number IS NULL
+        ORDER BY qr_code_date DESC
+        LIMIT 1
+        """
+        cursor.execute(query_find_qr)
+        qr_code_row = cursor.fetchone()
+
+        # If a QR code with NULL serial number is found
+        if qr_code_row:
+            qr_code = qr_code_row[0]
+
+            # Step 2: Clear all data from the current_esn table before adding new serial numbers
+            query_clear_current_esn = "DELETE FROM current_esn"
+            cursor.execute(query_clear_current_esn)
+            conn.commit()
+
+            # Step 3: Iterate over each serial number and update both tables
+            for serial_number in serials:
+                # Update the found row in `tenna_qr` with the serial number and other details
                 query_update_qr = """
                 UPDATE tenna_qr
                 SET serial_date = %s, serial_number = %s
@@ -608,31 +750,117 @@ def StoreSerialWithQRCode(serials, carrier, qrCode, label_date):
                 LIMIT 1
                 """
                 cursor.execute(query_update_qr, (label_date, serial_number, qr_code))
-                connection.commit()
+                conn.commit()
 
-                # Step 3: Insert into `current_esn` table after updating `tenna_qr`
+                # Insert into `current_esn` table after updating `tenna_qr`
                 query_insert_current = """
                 INSERT INTO current_esn (date, serial_number, carrier, qr_code)
                 VALUES (%s, %s, %s, %s)
                 """
                 cursor.execute(query_insert_current, (label_date, serial_number, carrier, qr_code))
-                connection.commit()
+                conn.commit()
 
-        success = True
-        message = "Serial numbers stored successfully in both tenna_qr and current_esn tables."
+            success = True
+            message = "Serial numbers stored successfully in both tenna_qr and current_esn tables."
+
+        else:
+            # If no QR code with NULL serial is found, show a popup
+            sg.popup("No available QR code found with a null serial number.")
+            success = False
+            message = "No available QR code found with a null serial number."
 
     except mysql.connector.Error as err:
         success = False
         message = f"Error: {str(err)}"
 
     finally:
-        # Ensure that the database connection is closed
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+        # Close the loading popup after processing is complete
+        sg.popup_animated(None)  # Closes the animated popup
+
 
     return success, message
+'''
 
+
+
+# Function to process the serials and show a progress popup
+def StoreSerialWithQRCode(serials, carrier, qrCode, label_date):
+    try:
+        # Show a progress bar (indeterminate)
+        progress_bar = sg.Window(
+            'Processing...',
+            [[sg.Text('Please wait, generating serials...')],
+             [sg.ProgressBar(1, orientation='h', size=(20, 20), key='progress',bar_color=('#2c5c9d', '#DAD9D5'))]],
+            keep_on_top=True,
+            finalize=True
+        )
+
+        progress_elem = progress_bar['progress']
+
+        cursor = conn.cursor()
+
+        # Step 1: Find the latest QR code row in `tenna_qr` where serial_number is NULL
+        query_find_qr = """
+        SELECT qr_code
+        FROM tenna_qr
+        WHERE serial_number IS NULL
+        ORDER BY qr_code_date DESC
+        LIMIT 1
+        """
+        cursor.execute(query_find_qr)
+        qr_code_row = cursor.fetchone()
+
+        # If a QR code with NULL serial number is found
+        if qr_code_row:
+            qr_code = qr_code_row[0]
+
+            # Step 2: Clear all data from the current_esn table before adding new serial numbers
+            query_clear_current_esn = "DELETE FROM current_esn"
+            cursor.execute(query_clear_current_esn)
+            conn.commit()
+
+            # Step 3: Iterate over each serial number and update both tables
+            total_serials = len(serials)
+            for i, serial_number in enumerate(serials):
+                # Update the progress (indeterminate, just showing movement)
+                progress_elem.update_bar((i + 1) / total_serials)
+
+
+
+                # Update the found row in `tenna_qr` with the serial number and other details
+                query_update_qr = """
+                UPDATE tenna_qr
+                SET serial_date = %s, serial_number = %s
+                WHERE qr_code = %s AND serial_number IS NULL
+                LIMIT 1
+                """
+                cursor.execute(query_update_qr, (label_date, serial_number, qr_code))
+                conn.commit()
+
+                # Insert into `current_esn` table after updating `tenna_qr`
+                query_insert_current = """
+                INSERT INTO current_esn (date, serial_number, carrier, qr_code)
+                VALUES (%s, %s, %s, %s)
+                """
+                cursor.execute(query_insert_current, (label_date, serial_number, carrier, qr_code))
+                conn.commit()
+
+            success = True
+            message = "Serial numbers stored successfully in both tenna_qr and current_esn tables."
+        else:
+            sg.popup("No available QR code found with a null serial number.")
+            success = False
+            message = "No available QR code found with a null serial number."
+
+    except mysql.connector.Error as err:
+        success = False
+        message = f"Error: {str(err)}"
+
+    finally:
+        # Close the progress bar after processing
+        progress_bar.close()
+
+    return success, message
 
 
 # This function pushes serial to database - when QR is checked
@@ -731,6 +959,9 @@ while True:
 
     elif event == 'Upload QR code':
         add_qrCodes()
+
+    elif event == "Count QR":
+        count_remaining_qr()
 
 
 # Close connections
