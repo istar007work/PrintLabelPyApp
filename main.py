@@ -7,11 +7,12 @@ import subprocess
 import os
 from mysql.connector.errors import Error
 import csv
+import time
 
 
 
 ###### notes what to work on
-# when there is no enogh qr left, the loading sign was not off, it hid the messgae ,fix it
+# when there is no enough qr left, the loading sign was not off, it hid the messgae ,fix it
 
 
 ''' if using Ali PC use this in ENV
@@ -61,11 +62,32 @@ conn = mysql.connector.connect(**db_config)
 cursor = conn.cursor()
 
 # Set PySimpleGUI theme to default
-sg.theme('Default1')
+# Define a custom theme using your color scheme
+sg.LOOK_AND_FEEL_TABLE['CustomTheme'] = {
+    'BACKGROUND': 'white',             # Body background color
+    'TEXT': 'black',                   # Text color
+    'INPUT': '#e3e3e3',                # Input field background color
+    'TEXT_INPUT': 'black',             # Input field text color
+    'SCROLL': '#DAD9D5',               # Scroll background color (if any)
+    'BUTTON': ('white', '#2c5c9d'),    # Button text and background color
+    'PROGRESS': ('#DAD9D5', '#2c5c9d'),# Progress bar colors
+    'BORDER': 0,                       # Border size for elements
+    'SLIDER_DEPTH': 0,                 # Slider depth
+    'PROGRESS_DEPTH': 0,               # Progress bar depth
+}
+
+
+# Apply the custom theme
+sg.theme('CustomTheme')
 
 # Define the path to your image
 image_path = "logo.png"  # Update this to the path of your image
 
+
+# Define global sizes
+button_size = (15, 2)
+input_size = (22, 1)  # Width of 25 for consistent alignment
+text_size = (0,1)
 
 
 #################################################################### Global entries
@@ -559,6 +581,19 @@ def open_popup(layout, title):
 
 
 
+
+
+
+# Create the splash screen layout
+splash_layout = [[sg.Image("loadingsign2.png")]]
+splash_window = sg.Window("Welcome", splash_layout, no_titlebar=True, finalize=True, keep_on_top=True,element_padding=(0, 0),border_depth=10,transparent_color=sg.theme_background_color(),  )
+
+# Show the splash screen for a few seconds
+time.sleep(3)  # Display for 2 seconds
+splash_window.close()
+#####################################################################
+#####################################################################
+#####################################################################
 ######################  Home Page #######################
 # Main window layout
 # Set the global icon
@@ -579,22 +614,22 @@ layout = [
 
 
     [sg.Text("                       "), sg.Image(filename=image_path, size=(100, 100)),
-     sg.Text("Geometris Serial Manager Application", font=('Arial', 16))],  # Add the image to the layout
-    [sg.Text('Enter 3-digit model:     ', font=('Arial', 12)),
-     sg.InputText(key='-MODEL-', size=(5, 2), font=('Arial', 30))],
-    [sg.Text('Enter number (from):   ', font=('Arial', 12)),
-     sg.InputText(key='-FROM-', size=(25, 2), font=('Arial', 30))],
-    [sg.Text('Enter number (to):       ', font=('Arial', 12)),
-     sg.InputText(key='-TO-', size=(25, 2), font=('Arial', 30))],
-    [sg.Text('Select Carrier:             ', font=('Arial', 12)),
-     sg.Combo(carrierFile, key='-CARRIER-', readonly=True, font=('Arial', 30), size=(24, 10))],
-    [sg.Text('Fuel ID:                         ', font=('Arial', 12)),
-     sg.Combo(['Yes', 'No'], key='-FUELID-', readonly=True, font=('Arial', 30), size=(24, 2))],
+     sg.Text("Geometris Serial Manager Application", font=('Arial', 14))],  # Add the image to the layout
+    [sg.Text('Enter 3-digit model:', font=('Arial', 12),size=input_size),
+     sg.InputText(key='-MODEL-', size=input_size, font=('Arial', 30))],
+    [sg.Text('Enter number (from):', font=('Arial', 12),size=input_size),
+     sg.InputText(key='-FROM-', size=input_size, font=('Arial', 30))],
+    [sg.Text('Enter number (to):', font=('Arial', 12),size=input_size),
+     sg.InputText(key='-TO-', size=input_size, font=('Arial', 30))],
+    [sg.Text('Select Carrier:', font=('Arial', 12),size=input_size),
+     sg.Combo(carrierFile, key='-CARRIER-', readonly=True, font=('Arial', 30), size=input_size)],
+    [sg.Text('Fuel ID:', font=('Arial', 12),size=input_size),
+     sg.Combo(['Yes', 'No'], key='-FUELID-', readonly=True, font=('Arial', 30), size=input_size)],
 
     #[sg.Text('QR Links:                     ', font=('Arial', 12)),
      #sg.Combo(qr_strings, key='-qrLink-', readonly=True, font=('Arial', 12), size=(59, 10))],
 
-    [sg.Text('QR:                              ', font=('Arial', 12)),
+    [sg.Text('QR:', font=('Arial', 12),size=input_size),
      sg.Checkbox('Enable QR', key='-qrLinkcheck-', font=('Arial', 12))],
 
     [sg.Button('Submit', font=('Arial', 15),size=(15,2), border_width=2, bind_return_key=True,button_color=('white','#305c9c'),mouseover_colors='gray'),
@@ -602,19 +637,26 @@ layout = [
     sg.Button('Reprint', font=('Arial', 15),size=(15,2),border_width=2,mouseover_colors='gray'),
      ],
     [sg.Text('Status:', font=('Arial', 12))],
-    [sg.Multiline(size=(80, 10), key='-STATUS-', font=('Arial', 12), disabled=True,background_color="#C0C0C0",sbar_frame_color="#305c9c")],
+    [sg.Multiline(size=(76, 10), key='-STATUS-', font=('Arial', 12), disabled=True,background_color="#C0C0C0",sbar_frame_color="#305c9c")],
     [sg.Text("Total labels today:",font=('Arial', 8),justification='center'),sg.Text(key='total_labels',font=('Arial', 8))],
 ]
 
-window = sg.Window('Serial Manager November 2024', layout,icon='appico.ico', element_justification='left',finalize=True,titlebar_background_color="black")
+window = sg.Window('Serial Manager November 25, 2024', layout,icon='appico.ico', element_justification='left',finalize=True,titlebar_background_color="black")
 
 # Update the total labels on startup
 initial_count = label_count()  # Fetch initial count
 window['total_labels'].update(initial_count)  # Update the label display
 
+#####################################################################
+#####################################################################
+#####################################################################
 
 
 
+
+
+###############################################################################
+###############################################################################
 ######################  Function to validate user input ####################### add excpetion of not printing above 1k or 12 digit max
 def validate_inputs(model, from_num, to_num):
     try:
@@ -670,6 +712,8 @@ def generate_serials(model, from_num, to_num):
 
 
 
+###############################################################################
+###############################################################################
 # This function pushes serial to database - regular
 def store_serials_in_db(serials, carrier, fuel_ids=None, label_date=None):
     try:
@@ -707,91 +751,15 @@ def store_serials_in_db(serials, carrier, fuel_ids=None, label_date=None):
         return False, f"Error: {e} not able to push to database"
 
 
-# QR FUNCTION START
-# This function stores numbers with qr functionality when user hits checkbox
-'''
-def StoreSerialWithQRCode(serials, carrier, qrCode, label_date):
-    try:
-
-
-        cursor = conn.cursor()
-
-        # Step 1: Find the latest QR code row in `tenna_qr` where serial_number is NULL
-        query_find_qr = """
-        SELECT qr_code
-        FROM tenna_qr
-        WHERE serial_number IS NULL
-        ORDER BY qr_code_date DESC
-        LIMIT 1
-        """
-        cursor.execute(query_find_qr)
-        qr_code_row = cursor.fetchone()
-
-        # If a QR code with NULL serial number is found
-        if qr_code_row:
-            qr_code = qr_code_row[0]
-
-            # Step 2: Clear all data from the current_esn table before adding new serial numbers
-            query_clear_current_esn = "DELETE FROM current_esn"
-            cursor.execute(query_clear_current_esn)
-            conn.commit()
-
-            # Step 3: Iterate over each serial number and update both tables
-            for serial_number in serials:
-                # Update the found row in `tenna_qr` with the serial number and other details
-                query_update_qr = """
-                UPDATE tenna_qr
-                SET serial_date = %s, serial_number = %s
-                WHERE qr_code = %s AND serial_number IS NULL
-                LIMIT 1
-                """
-                cursor.execute(query_update_qr, (label_date, serial_number, qr_code))
-                conn.commit()
-
-                # Insert into `current_esn` table after updating `tenna_qr`
-                query_insert_current = """
-                INSERT INTO current_esn (date, serial_number, carrier, qr_code)
-                VALUES (%s, %s, %s, %s)
-                """
-                cursor.execute(query_insert_current, (label_date, serial_number, carrier, qr_code))
-                conn.commit()
-
-            success = True
-            message = "Serial numbers stored successfully in both tenna_qr and current_esn tables."
-
-        else:
-            # If no QR code with NULL serial is found, show a popup
-            sg.popup("No available QR code found with a null serial number.")
-            success = False
-            message = "No available QR code found with a null serial number."
-
-    except mysql.connector.Error as err:
-        success = False
-        message = f"Error: {str(err)}"
-
-    finally:
-        # Close the loading popup after processing is complete
-        sg.popup_animated(None)  # Closes the animated popup
-
-
-    return success, message
-'''
-
-
 
 # Function to process the serials when QR is checked
+# This function pushes serial to database - when QR is checked
+#It will first push to the tenna_qr table, where the serial numbers are initially stored with the QR code. After that, they will be moved to the current table.
+# Logic: 1. serial number goes to qr table, and looks for the latest qr code that does not have any serial number in the same row, and then stores serial numbers there for i
 def StoreSerialWithQRCode(serials, carrier, label_date):
     try:
-        # Show a progress bar (indeterminate)
-        progress_bar = sg.Window(
-            'Processing...',
-            [[sg.Text('Please wait, generating serials...')],
-             [sg.ProgressBar(1, orientation='h', size=(20, 20), key='progress', bar_color=('#2c5c9d', '#DAD9D5'))]],
-            keep_on_top=True,
-            finalize=True
-        )
 
-        progress_elem = progress_bar['progress']
+
 
         cursor = conn.cursor()
 
@@ -808,10 +776,22 @@ def StoreSerialWithQRCode(serials, carrier, label_date):
 
         # Check if enough QR codes were retrieved
         if len(qr_code_rows) < len(serials):
-            sg.popup(f"Not enough available QR codes found. Found {len(qr_code_rows)} but {len(serials)} needed.")
+            sg.popup(f"Not enough available QR codes found. Found {len(qr_code_rows)} but {len(serials)} needed.",title='QR Out')
             success = False
             message = f"Not enough QR codes available."
         else:
+
+            # Show a progress bar (indeterminate)
+            progress_bar = sg.Window(
+                'Processing...',
+                [[sg.Text('Please wait, generating serials...')],
+                 [sg.ProgressBar(1, orientation='h', size=(20, 20), key='progress', bar_color=('#2c5c9d', '#DAD9D5'))]],
+                keep_on_top=True,
+                finalize=True
+            )
+
+            progress_elem = progress_bar['progress']
+
             # Step 2: Clear all data from the current_esn table before adding new serial numbers
             query_clear_current_esn = "DELETE FROM current_esn"
             cursor.execute(query_clear_current_esn)
@@ -844,7 +824,7 @@ def StoreSerialWithQRCode(serials, carrier, label_date):
                 conn.commit()
 
             success = True
-            message = "Serial numbers stored successfully in both tenna_qr and current_esn tables."
+            message = "Serial numbers generated successfully with QR Code"
 
     except mysql.connector.Error as err:
         success = False
@@ -852,23 +832,19 @@ def StoreSerialWithQRCode(serials, carrier, label_date):
 
     finally:
         # Close the progress bar after processing
-        progress_bar.close()
+        # Close the progress bar only if it was created
+        if 'progress_bar' in locals():
+            progress_bar.close()
 
     return success, message
-
-
-
-# This function pushes serial to database - when QR is checked
-#It will first push to the tenna_qr table, where the serial numbers are initially stored with the QR code. After that, they will be moved to the current table.
-# Logic: 1. serial number goes to qr table, and looks for the latest qr code that does not have any serial number in the same row, and then stores serial numbers there for i
 
 
 
 
 
 ######################  Function to validate user input End #######################
-
-
+###############################################################################
+###############################################################################
 
 
 
@@ -957,6 +933,9 @@ while True:
 
     elif event == "Count QR":
         count_remaining_qr()
+
+    elif event=='Help':
+        help()
 
 
 # Close connections
