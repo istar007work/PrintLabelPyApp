@@ -23,6 +23,7 @@ DB_PASSWORD=july5_123$geolp
 DB_NAME=alidb
 '''
 
+### use this
 ''' if using Ali PC use this in ENV version 2 test, 
 DB_HOST=localhost
 DB_USER=root
@@ -30,11 +31,12 @@ DB_PASSWORD=july5_123$geolp
 DB_NAME=printlabelv2
 '''
 
+## sim pc
 '''' config when building app for sim computer
 DB_HOST=127.0.0.1
 DB_USER=root
 DB_PASSWORD=july6_123$geolp
-DB_NAME=serieldb
+DB_NAME=printlabelv2
 '''
 
 # When exported and running on Sim PC use this:
@@ -87,7 +89,7 @@ image_path = "logo.png"  # Update this to the path of your image
 
 # Define global sizes
 button_size = (15, 2)
-input_size = (22, 1)  # Width of 25 for consistent alignment
+input_size = (21, 1)  # Width of 25 for consistent alignment
 text_size = (0,1)
 
 
@@ -330,7 +332,7 @@ def repeat_print(conn):
             window.close()
             return
 
-
+'''
 # add qr codes to database
 def add_qrCodes():
     # Define the layout of the window
@@ -442,6 +444,121 @@ def add_qrCodes():
             window['-PROGRESS-'].update(visible=False)
 
     window.close()
+'''
+
+def add_qrCodes():
+    # Define the layout of the window
+    layout = [
+        [sg.Text('Upload a text file with QR codes')],
+        [sg.Input(key='-FILE-', enable_events=True), sg.FileBrowse(file_types=(("Text Files", "*.txt"),))],
+        [sg.ProgressBar(max_value=100, orientation='h', size=(30, 20), key='-PROGRESS-', visible=False,
+                        bar_color=('#2c5c9d', '#DAD9D5'))],
+        [sg.Button('Submit'), sg.Button('Cancel')]
+    ]
+
+    window = sg.Window('Upload QR Codes', layout)
+    upload_in_progress = False
+
+    while True:
+        event, values = window.read(timeout=100)  # Timeout added to make the interface responsive
+
+        if event in (sg.WIN_CLOSED, 'Cancel'):
+            break
+
+        if event == 'Submit':
+            file_path = values['-FILE-']
+            if not file_path:
+                sg.popup('Please select a file to upload.')
+                continue
+
+            # Read the file contents
+            try:
+                with open(file_path, 'r') as file:
+                    qr_codes = file.read().splitlines()
+            except Exception as e:
+                sg.popup(f"Error reading file: {e}")
+                continue
+
+            if not qr_codes:
+                sg.popup('The file is empty. Please upload a valid file.')
+                continue
+
+            # Step 1: Check for duplicates within the file itself
+            duplicate_in_file = set([code for code in qr_codes if qr_codes.count(code) > 1])
+            if duplicate_in_file:
+                sg.popup(f"In-file duplicates found. Please remove duplicates and try again.",
+                         title="In-File Duplicates Found")
+                continue
+
+            # Step 2: Check for duplicates in the database
+            duplicate_in_db = []
+            try:
+                for qr_code in qr_codes:
+                    cursor.execute("SELECT COUNT(*) FROM tenna_qr WHERE qr_code = %s", (qr_code,))
+                    result = cursor.fetchone()
+                    if result[0] > 0:
+                        duplicate_in_db.append(qr_code)
+            except Exception as e:
+                sg.popup(f"Database error while checking duplicates: {e}")
+                continue
+
+            # If duplicates are found in the database, show a popup with duplicates and stop processing
+            if duplicate_in_db:
+                sg.popup(f"QR already exist in the database. Please check the file and upload again.",
+                         title="Database Duplicates Found")
+                continue
+
+            # If no duplicates, proceed with uploading
+            if not qr_codes:
+                sg.popup("No new QR codes to upload.", title="No New Data")
+                continue
+
+            # Show the progress bar while pushing non-duplicate data
+            window['-PROGRESS-'].update(visible=True)
+            window.refresh()
+
+            total_count = len(qr_codes)
+            success_count = 0
+            upload_in_progress = True
+
+            try:
+                for i, qr_code in enumerate(qr_codes):
+                    # Check if the user clicked "Cancel" during the upload
+                    event, _ = window.read(timeout=0)
+                    if event == 'Cancel':
+                        sg.popup('Upload interrupted by user.', title='Alert')
+                        break
+
+                    # Insert the data into MySQL
+                    cursor.execute(
+                        "INSERT INTO tenna_qr (qr_code_date, qr_code) VALUES (%s, %s)",
+                        (datetime.now().strftime('%Y-%m-%d'), qr_code)
+                    )
+                    conn.commit()
+
+                    # Update progress bar
+                    progress = int((i + 1) / total_count * 100)
+                    window['-PROGRESS-'].update(progress)
+                    window.refresh()
+
+                    success_count += 1
+
+                else:  # If the loop wasn't interrupted by 'Cancel'
+                    sg.popup(f"Success! {success_count} QR codes have been pushed to the database.", title='Success')
+                    upload_in_progress = False
+                    break
+
+            except Exception as e:
+                conn.rollback()
+                sg.popup(f"Error pushing data to the database: {e}")
+
+            # Hide progress bar after completion or interruption
+            window['-PROGRESS-'].update(visible=False)
+
+    window.close()
+
+
+
 
 # count remaining QR codes with has null serial number
 def count_remaining_qr():
@@ -640,7 +757,7 @@ layout = [
     sg.Button('Reprint', font=('Arial', 14),size=(14,2),border_width=2,mouseover_colors='gray'),sg.Button('Clear', font=('Arial', 14),size=(14,2),border_width=2,mouseover_colors='gray'),
      ],
     [sg.Text('Status:', font=('Arial', 12))],
-    [sg.Multiline(size=(77, 8), key='-STATUS-', font=('Arial', 12), disabled=True,background_color="#C0C0C0",sbar_frame_color="#305c9c")],
+    [sg.Multiline(size=(74, 8), key='-STATUS-', font=('Arial', 12), disabled=True,background_color="#C0C0C0",sbar_frame_color="#305c9c")],
     [sg.Text("Total labels:",font=('Arial', 8),justification='center'),sg.Text(key='total_labels',font=('Arial', 8))],
 ]
 
@@ -784,6 +901,19 @@ def StoreSerialWithQRCode(serials, carrier, label_date):
             message = f"Not enough QR codes available."
         else:
 
+            # Step 1a: Check for duplicate serial numbers in current_esn
+            for serial_number in serials:
+                cursor.execute("SELECT COUNT(*) FROM current_esn WHERE serial_number = %s", (serial_number,))
+                result_current = cursor.fetchone()
+                cursor.execute("SELECT COUNT(*) FROM archive_esn WHERE serial_number = %s", (serial_number,))
+                result_archive = cursor.fetchone()
+                if result_current[0] > 0:
+                    raise Exception(f"Duplicate serial number found in current_esn: {serial_number}")
+                if result_archive[0] > 0:
+                    raise Exception(f"Duplicate serial number found in archive_esn: {serial_number}")
+
+            # step see if there are serial alreay in current_esn
+
             # Show a progress bar (indeterminate)
             progress_bar = sg.Window(
                 'Processing...',
@@ -837,9 +967,9 @@ def StoreSerialWithQRCode(serials, carrier, label_date):
             success = True
             message = "Serial numbers generated successfully with QR Code"
 
-    except mysql.connector.Error as err:
+    except Exception as e: # prints all errors to status terminal
         success = False
-        message = f"Error: {str(err)}"
+        message = f"Error: {str(e)}"
 
     finally:
         # Close the progress bar after processing
@@ -969,7 +1099,7 @@ while True:
                     #window['-qrLink-'].update("")
 
                     window['total_labels'].update(label_count())
-                    open_designs(model, carrier, fuel_ids, qrLinkCheck)
+                    open_designs(model, carrier, fuel_ids, qrLinkCheck) # open the designs
 
                 else:
                     window['-STATUS-'].update(message)
@@ -994,6 +1124,15 @@ while True:
 
     elif event=='Help':
         help()
+
+    elif event=='Clear':
+        window['-STATUS-'].update('Cleared...')
+        window['-FROM-'].update("")
+        window['-TO-'].update("")
+        window['-MODEL-'].update("")
+        window['-CARRIER-'].update("")
+        window['-FUELID-'].update("")
+
 
 
 # Close connections
