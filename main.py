@@ -8,7 +8,8 @@ import os
 from mysql.connector.errors import Error
 import csv
 import time
-
+from featuresNotes import release_notes
+import json
 
 
 ###### notes what to work on
@@ -107,28 +108,31 @@ queries = {
 ######################  Text file reading Start ######################
 
 def label_count():
-    # Query to count the total number of rows in the archive_esn table
-    arch_count_query = 'SELECT COUNT(*) FROM archive_esn;'
-    current_count_query = 'SELECT COUNT(*) FROM current_esn;'
+    # Get today's date in the format used by your database (e.g., 'YYYY-MM-DD')
+    today_date = datetime.now().strftime('%Y-%m-%d')
 
-    # Count for archive_esn
-    cursor.execute(arch_count_query)
+    # Modify the queries to count only entries from today's date
+    arch_count_query = 'SELECT COUNT(*) FROM archive_esn WHERE date = %s;'
+    current_count_query = 'SELECT COUNT(*) FROM current_esn WHERE date = %s;'
+
+    # Execute count for archive_esn with date filter
+    cursor.execute(arch_count_query, (today_date,))
     arch_result = cursor.fetchone()  # Fetches the first row of the result
     arch_label_count = arch_result[0] if arch_result[0] is not None else 0  # Ensure it's 0 if None
 
-    # Count for current_esn
-    cursor.execute(current_count_query)
+    # Execute count for current_esn with date filter
+    cursor.execute(current_count_query, (today_date,))
     current_result = cursor.fetchone()  # Fetches the first row of the result
     current_label_count = current_result[0] if current_result[0] is not None else 0  # Ensure it's 0 if None
 
-    # Calculate total label count
+    # Calculate total label count for today
     total_count = arch_label_count + current_label_count
 
-    print(f'Total number of rows in archive_esn: {arch_label_count}')
-    print(f'Total number of rows in current_esn: {current_label_count}')
-    print(f'Total labels: {total_count}')
+    print(f'Total number of rows in archive_esn for today ({today_date}): {arch_label_count}')
+    print(f'Total number of rows in current_esn for today ({today_date}): {current_label_count}')
+    print(f'Total labels for today: {total_count}')
 
-    return total_count  # Return the total count
+    return total_count  # Return the total count for today
 
 
 
@@ -201,7 +205,7 @@ def view_last_esn(connection):
                 headings=headings,
                 display_row_numbers=False,  # We handle row numbers manually
                 auto_size_columns=False,  # Disable auto column sizing
-                col_widths=[5, 12, 13, 9, 9, 40],  # Adjust column widths to include Date
+                col_widths=[5, 12, 13, 9, 9, 30],  # Adjust column widths to include Date
                 num_rows=min(25, len(rows)),  # Set number of rows to show at once
                 size=(700, 400),  # Adjust table size (width, height) to fit the new column
                 justification='center',
@@ -562,10 +566,9 @@ def count_remaining_qr():
 
 ######################  Future Menu Functions  #######################
 def help():
-    return [
-        [sg.Text('This App generates serial numbers.')],
-        [sg.Button('Close')]
-    ]
+    release_notes()
+
+
 
 ######################  Future Menu Functions End #######################
 
@@ -632,16 +635,16 @@ layout = [
     [sg.Text('QR:', font=('Arial', 12),size=input_size),
      sg.Checkbox('Enable QR', key='-qrLinkcheck-', font=('Arial', 12))],
 
-    [sg.Button('Submit', font=('Arial', 15),size=(15,2), border_width=2, bind_return_key=True,button_color=('white','#305c9c'),mouseover_colors='gray'),
-     sg.Button('View Last Print', font=('Arial', 15),size=(15,2),border_width=2,mouseover_colors='gray'),
-    sg.Button('Reprint', font=('Arial', 15),size=(15,2),border_width=2,mouseover_colors='gray'),
+    [sg.Button('Submit', font=('Arial', 14),size=(14,2), border_width=2, bind_return_key=True,button_color=('white','#305c9c'),mouseover_colors='gray'),
+     sg.Button('View Last Print', font=('Arial', 14),size=(13,2),border_width=2,mouseover_colors='gray'),
+    sg.Button('Reprint', font=('Arial', 14),size=(14,2),border_width=2,mouseover_colors='gray'),sg.Button('Clear', font=('Arial', 14),size=(14,2),border_width=2,mouseover_colors='gray'),
      ],
     [sg.Text('Status:', font=('Arial', 12))],
-    [sg.Multiline(size=(76, 10), key='-STATUS-', font=('Arial', 12), disabled=True,background_color="#C0C0C0",sbar_frame_color="#305c9c")],
-    [sg.Text("Total labels today:",font=('Arial', 8),justification='center'),sg.Text(key='total_labels',font=('Arial', 8))],
+    [sg.Multiline(size=(77, 8), key='-STATUS-', font=('Arial', 12), disabled=True,background_color="#C0C0C0",sbar_frame_color="#305c9c")],
+    [sg.Text("Total labels:",font=('Arial', 8),justification='center'),sg.Text(key='total_labels',font=('Arial', 8))],
 ]
 
-window = sg.Window('Serial Manager November 25, 2024', layout,icon='appico.ico', element_justification='left',finalize=True,titlebar_background_color="black")
+window = sg.Window('Serial Manager October 30, 2024', layout,icon='appico.ico', element_justification='left',finalize=True,titlebar_background_color="black")
 
 # Update the total labels on startup
 initial_count = label_count()  # Fetch initial count
@@ -792,6 +795,14 @@ def StoreSerialWithQRCode(serials, carrier, label_date):
 
             progress_elem = progress_bar['progress']
 
+            # Step 1: Transfer existing data from `current_esn` to `archive_esn`
+            movecurrentToArhieve = """
+            INSERT INTO archive_esn (date, serial_number, carrier, fuel_ID, qr_code)
+            SELECT date, serial_number, carrier, fuel_ID, qr_code FROM current_esn
+            """
+            cursor.execute(movecurrentToArhieve)
+            conn.commit()
+
             # Step 2: Clear all data from the current_esn table before adding new serial numbers
             query_clear_current_esn = "DELETE FROM current_esn"
             cursor.execute(query_clear_current_esn)
@@ -838,6 +849,50 @@ def StoreSerialWithQRCode(serials, carrier, label_date):
 
     return success, message
 
+
+###############################################################################
+############################################################################### open design
+def open_designs(model, carrier, fuel_id, qr_enabled, config_file="design_config.json"):
+    """
+    Opens specific files based on the model, carrier, fuel ID, and QR checkbox state
+    by reading configurations from a JSON file.
+
+    Parameters:
+    model (str): The 3-digit model number as a string.
+    carrier (bool): True if a carrier is selected, otherwise False.
+    fuel_id (bool): True if Fuel ID is selected, otherwise False.
+    qr_enabled (bool): True if QR checkbox is checked, otherwise False.
+    config_file (str): Path to the JSON configuration file.
+    """
+    # Use the script's directory as the base path for Designs and config_file
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(base_dir, config_file)
+
+    # Load configurations from JSON
+    try:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+    except Exception as e:
+        print(f"Error loading config file: {e}")
+        return
+
+    # Iterate through the configuration entries to find a match
+    file_path = None
+    for design in config.get("designs", []):
+        # Check if model matches and other conditions are met
+        if model in design["model"] and \
+           design["carrier"] == bool(carrier) and \
+           design["fuel_id"] == bool(fuel_id) and \
+           design["qr_enabled"] == bool(qr_enabled):
+            # Build the full path using the relative path stored in the JSON file
+            file_path = os.path.join(base_dir, design["path"])
+            break
+
+    # Attempt to open the file if a matching path is found
+    if file_path and os.path.isfile(file_path):
+        os.startfile(file_path)
+    else:
+        sg.popup_auto_close("No design found for the selected model and options.",title='No file', auto_close_duration=3)
 
 
 
@@ -898,9 +953,11 @@ while True:
                 if qrLinkCheck:
                     success, message = StoreSerialWithQRCode(serials, carrier ,label_date)
 
+
                 else:
                     # push to database using the regular storing db function
                     success, message = store_serials_in_db(serials, carrier, fuel_ids, label_date)
+
                 # print to window when success, and clear the inputs
                 if success:
                     window['-STATUS-'].update(message + '\n' + '\n'.join(serials))
@@ -912,6 +969,7 @@ while True:
                     #window['-qrLink-'].update("")
 
                     window['total_labels'].update(label_count())
+                    open_designs(model, carrier, fuel_ids, qrLinkCheck)
 
                 else:
                     window['-STATUS-'].update(message)

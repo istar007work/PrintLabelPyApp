@@ -1,0 +1,39 @@
+{
+    "designs": [
+        {
+            "model": ["87A", "87B"],
+            "carrier": false,
+            "fuel_id": false,
+            "qr_enabled": false,
+            "path": "Designs/OBD/BG96/OBD REGULAR BG96.lbl"
+        },
+        {
+            "model": ["79A", "79B"],
+            "carrier": false,
+            "fuel_id": false,
+            "qr_enabled": false,
+            "path": "Designs/OBD/BG96/OEM REGULAR BG96.lbl"
+        },
+        {
+            "model": ["87U"],
+            "carrier": true,
+            "fuel_id": true,
+            "qr_enabled": true,
+            "path": "Designs/OBD/BG96/Tenna/OBD + CARRIER + QR.lbl"
+        },
+        {
+            "model": ["79U"],
+            "carrier": true,
+            "fuel_id": true,
+            "qr_enabled": true,
+            "path": "Designs/OEM/BG96/Tenna/OEM + CARRIER + QR - Copy.lbl"
+        },
+        {
+            "model": ["79T"],
+            "carrier": false,
+            "fuel_id": true,
+            "qr_enabled": false,
+            "path": "Designs/OEM/BG96/Asset Works/79V + FUEL ID + Logo1.txt"
+        }
+    ]
+}
