@@ -451,7 +451,7 @@ def add_qrCodes():
     layout = [
         [sg.Text('Upload a text file with QR codes')],
         [sg.Input(key='-FILE-', enable_events=True), sg.FileBrowse(file_types=(("Text Files", "*.txt"),))],
-        [sg.ProgressBar(max_value=100, orientation='h', size=(30, 20), key='-PROGRESS-', visible=False,
+        [sg.ProgressBar(max_value=100, orientation='h', size=(29, 20), key='-PROGRESS-', visible=False,
                         bar_color=('#2c5c9d', '#DAD9D5'))],
         [sg.Button('Submit'), sg.Button('Cancel')]
     ]
@@ -525,8 +525,9 @@ def add_qrCodes():
                 for i, qr_code in enumerate(qr_codes):
                     # Check if the user clicked "Cancel" during the upload
                     event, _ = window.read(timeout=0)
-                    if event == 'Cancel':
+                    if event in ('Cancel', sg.WIN_CLOSED):
                         sg.popup('Upload interrupted by user.', title='Alert')
+                        conn.rollback()
                         break
 
                     # Insert the data into MySQL
@@ -534,7 +535,7 @@ def add_qrCodes():
                         "INSERT INTO tenna_qr (qr_code_date, qr_code) VALUES (%s, %s)",
                         (datetime.now().strftime('%Y-%m-%d'), qr_code)
                     )
-                    conn.commit()
+                    #conn.commit() do not commit individually
 
                     # Update progress bar
                     progress = int((i + 1) / total_count * 100)
@@ -544,6 +545,7 @@ def add_qrCodes():
                     success_count += 1
 
                 else:  # If the loop wasn't interrupted by 'Cancel'
+                    conn.commit()  # Commit all changes at once
                     sg.popup(f"Success! {success_count} QR codes have been pushed to the database.", title='Success')
                     upload_in_progress = False
                     break
@@ -758,7 +760,7 @@ layout = [
      ],
     [sg.Text('Status:', font=('Arial', 12))],
     [sg.Multiline(size=(74, 8), key='-STATUS-', font=('Arial', 12), disabled=True,background_color="#C0C0C0",sbar_frame_color="#305c9c")],
-    [sg.Text("Total labels:",font=('Arial', 8),justification='center'),sg.Text(key='total_labels',font=('Arial', 8))],
+    [sg.Text("Labels today:",font=('Arial', 8),justification='center'),sg.Text(key='total_labels',font=('Arial', 8))],
 ]
 
 window = sg.Window('Serial Manager October 30, 2024', layout,icon='appico.ico', element_justification='left',finalize=True,titlebar_background_color="black")
