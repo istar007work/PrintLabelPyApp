@@ -671,6 +671,108 @@ def count_remaining_qr():
     except mysql.connector.Error as err:
         sg.popup_error(f"Error: {err}")
 
+# download qr code manifest for Tenna
+def qr_manifest():
+    try:
+        # Define the layout
+        layout = [
+            [sg.CalendarButton("From Date", target='serial_from_date', format="%Y-%m-%d", size=(15, 1)),
+             sg.Input(key='serial_from_date', size=(15, 1), disabled=True)],
+            [sg.CalendarButton("To Date", target='serial_to_date', format="%Y-%m-%d", size=(15, 1)),
+             sg.Input(key='serial_to_date', size=(15, 1), disabled=True)],
+            [sg.Button('Search', size=(15, 1)), sg.Button('Download CSV', size=(15, 1))],
+            [sg.Table(values=[], headings=['Serial Date', 'Serial Number', 'QR Code'],
+                      key='table', auto_size_columns=True, justification='center', num_rows=10)],
+        ]
+
+        # Create the window
+        window = sg.Window('QR Manifest', layout, finalize=True, element_justification='left')
+
+        while True:
+            event, values = window.read()
+
+            if event == sg.WIN_CLOSED:
+                break
+
+            if event == 'Search':
+                # Get date values for serial_date filters
+                serial_from_date = values['serial_from_date'] if values['serial_from_date'] else None
+                serial_to_date = values['serial_to_date'] if values['serial_to_date'] else None
+
+                # Connect to the database and fetch the data
+                cursor = conn.cursor()
+
+                # Query to fetch data with optional serial_date range filters
+                query_data = """
+                SELECT serial_date, serial_number, qr_code
+                FROM tenna_qr
+                WHERE serial_number IS NOT NULL
+                """
+                params = []
+
+                # Add serial_date filters if provided
+                if serial_from_date:
+                    query_data += " AND serial_date >= %s"
+                    params.append(serial_from_date)
+                if serial_to_date:
+                    query_data += " AND serial_date <= %s"
+                    params.append(serial_to_date)
+
+                cursor.execute(query_data, params)
+                results = cursor.fetchall()
+                cursor.close()
+
+                # If no data found in the date range, show an error popup
+                if not results:
+                    sg.popup_error("No data found in the specified serial date range.")
+                else:
+                    # Update table with results
+                    window['table'].update(values=results)
+
+            if event == 'Download CSV':
+                serial_from_date = values['serial_from_date'] if values['serial_from_date'] else None
+                serial_to_date = values['serial_to_date'] if values['serial_to_date'] else None
+
+                # Fetch data again for CSV export
+                cursor = conn.cursor()
+                query_data = """
+                SELECT serial_date, serial_number, qr_code
+                FROM tenna_qr
+                WHERE serial_number IS NOT NULL
+                """
+                params = []
+
+                # Add serial_date filters if provided
+                if serial_from_date:
+                    query_data += " AND serial_date >= %s"
+                    params.append(serial_from_date)
+                if serial_to_date:
+                    query_data += " AND serial_date <= %s"
+                    params.append(serial_to_date)
+
+                cursor.execute(query_data, params)
+                results = cursor.fetchall()
+                cursor.close()
+
+                # If no data to export, show an error popup
+                if not results:
+                    sg.popup_error("No data available to export.")
+                else:
+                    # Save CSV
+                    filename = sg.popup_get_file('Save as', save_as=True, no_window=True, file_types=(("CSV Files", "*.csv"),))
+                    if filename:
+                        with open(filename, 'w', newline='') as csvfile:
+                            writer = csv.writer(csvfile)
+                            headers = ['Serial Date', 'Serial Number', 'QR Code']
+                            writer.writerow(headers)
+                            writer.writerows(results)
+                        sg.popup(f"Data saved as {filename}")
+
+        window.close()
+    except mysql.connector.Error as err:
+        sg.popup_error(f"Error: {err}")
+
+
 
 
 
@@ -724,7 +826,7 @@ sg.set_options(icon="appico.ico")
 # create the menu
 menu_def = [
     ['Menu', ['Help']],
-    ['Tenna', ['Count QR','Upload QR code']]
+    ['Tenna', ['Count QR','Manifest','Upload QR code']]
 ]
 
 
@@ -752,7 +854,7 @@ layout = [
      #sg.Combo(qr_strings, key='-qrLink-', readonly=True, font=('Arial', 12), size=(59, 10))],
 
     [sg.Text('QR:', font=('Arial', 12),size=input_size),
-     sg.Checkbox('Enable QR', key='-qrLinkcheck-', font=('Arial', 12))],
+     sg.Checkbox('Enable QR', key='-qrLinkcheck-', font=('Arial', 12),size=(20, 1))],
 
     [sg.Button('Submit', font=('Arial', 14),size=(14,2), border_width=2, bind_return_key=True,button_color=('white','#305c9c'),mouseover_colors='gray'),
      sg.Button('View Last Print', font=('Arial', 14),size=(13,2),border_width=2,mouseover_colors='gray'),
@@ -763,7 +865,7 @@ layout = [
     [sg.Text("Labels today:",font=('Arial', 8),justification='center'),sg.Text(key='total_labels',font=('Arial', 8))],
 ]
 
-window = sg.Window('Serial Manager October 30, 2024', layout,icon='appico.ico', element_justification='left',finalize=True,titlebar_background_color="black")
+window = sg.Window('Serial Manager November 1, 2024', layout,icon='appico.ico', element_justification='left',finalize=True,titlebar_background_color="black")
 
 # Update the total labels on startup
 initial_count = label_count()  # Fetch initial count
@@ -1124,6 +1226,10 @@ while True:
     elif event == "Count QR":
         count_remaining_qr()
 
+    elif event =="Manifest":
+        qr_manifest()
+
+
     elif event=='Help':
         help()
 
@@ -1134,6 +1240,7 @@ while True:
         window['-MODEL-'].update("")
         window['-CARRIER-'].update("")
         window['-FUELID-'].update("")
+        window['-qrLinkcheck-'].update(False)
 
 
 
