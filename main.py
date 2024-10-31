@@ -682,7 +682,7 @@ def qr_manifest():
              sg.Input(key='serial_to_date', size=(15, 1), disabled=True)],
             [sg.Button('Search', size=(15, 1)), sg.Button('Download CSV', size=(15, 1))],
             [sg.Table(values=[], headings=['Serial Date', 'Serial Number', 'QR Code'],
-                      key='table', auto_size_columns=True, justification='center', num_rows=10)],
+                      key='table',auto_size_columns=False, justification='center', num_rows=20,col_widths=[13, 13, 47])],
         ]
 
         # Create the window
